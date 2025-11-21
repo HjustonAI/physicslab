@@ -5,6 +5,7 @@ import styles from "./ProjectileModule.module.css";
 import SimulationCanvas from "../simulation/SimulationCanvas";
 import { useGameLoop } from "@/hooks/useGameLoop";
 import HexSlider from "../ui/HexSlider";
+import Oscilloscope from "../ui/Oscilloscope";
 
 interface ProjectileState {
     x: number;
@@ -32,6 +33,10 @@ export default function ProjectileModule() {
         path: [],
     });
 
+    // Data History for Oscilloscopes
+    const [heightData, setHeightData] = useState<number[]>([]);
+    const [velocityData, setVelocityData] = useState<number[]>([]);
+
     const stateRef = useRef(simState);
     stateRef.current = simState;
 
@@ -56,6 +61,24 @@ export default function ProjectileModule() {
                 return { ...prev, x, y, isFlying: false, path: [...path, { x, y }] };
             }
 
+            // Record Data
+            // Invert Y for height (canvas Y is down)
+            const currentHeight = Math.max(0, startPos.y - y);
+            // Vertical velocity (invert because up is negative Y)
+            const currentVy = -vy;
+
+            setHeightData(prevData => {
+                const newData = [...prevData, currentHeight];
+                if (newData.length > 100) newData.shift(); // Keep last 100 frames
+                return newData;
+            });
+
+            setVelocityData(prevData => {
+                const newData = [...prevData, currentVy];
+                if (newData.length > 100) newData.shift();
+                return newData;
+            });
+
             // Record path every few frames or distance (optimization)
             // For now, just push every frame is fine for short flights
             return { ...prev, x, y, vx, vy, path: [...path, { x, y }] };
@@ -69,6 +92,9 @@ export default function ProjectileModule() {
         const rad = (angle * Math.PI) / 180;
         const vx = velocity * Math.cos(rad);
         const vy = -velocity * Math.sin(rad); // Negative because Y is down in canvas
+
+        setHeightData([]);
+        setVelocityData([]);
 
         setSimState({
             x: startPos.x,
@@ -89,6 +115,8 @@ export default function ProjectileModule() {
             isFlying: false,
             path: [],
         });
+        setHeightData([]);
+        setVelocityData([]);
     };
 
     // Rendering
@@ -143,6 +171,26 @@ export default function ProjectileModule() {
             <SimulationCanvas draw={draw} />
 
             <div className={styles.controls}>
+                {/* Oscilloscopes Panel */}
+                <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem' }}>
+                    <div style={{ flex: 1 }}>
+                        <Oscilloscope
+                            data={heightData}
+                            label="Height (m)"
+                            min={0}
+                            max={500}
+                        />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <Oscilloscope
+                            data={velocityData}
+                            label="Vertical Velocity (m/s)"
+                            min={-100}
+                            max={100}
+                        />
+                    </div>
+                </div>
+
                 <div className={styles.controlGroup}>
                     <HexSlider
                         label="Velocity"
