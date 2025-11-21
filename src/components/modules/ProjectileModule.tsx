@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import styles from "./ProjectileModule.module.css";
 import SimulationCanvas from "../simulation/SimulationCanvas";
 import { useGameLoop } from "@/hooks/useGameLoop";
@@ -23,15 +23,41 @@ export default function ProjectileModule() {
     const [gravity, setGravity] = useState(9.8); // m/s^2
 
     // Simulation State
-    const startPos = { x: 100, y: window.innerHeight - 150 }; // Initial position
+    // Use state for startPos so it triggers re-renders on resize
+    const [startPos, setStartPos] = useState({ x: 100, y: 0 }); // Y will be set on mount
+
+    useEffect(() => {
+        const handleResize = () => {
+            setStartPos({ x: 100, y: window.innerHeight - 150 });
+        };
+
+        // Initial set
+        handleResize();
+
+        window.addEventListener("resize", handleResize);
+        return () => window.removeEventListener("resize", handleResize);
+    }, []);
+
     const [simState, setSimState] = useState<ProjectileState>({
-        x: startPos.x,
-        y: startPos.y,
+        x: 100,
+        y: 0, // Will be updated by effect
         vx: 0,
         vy: 0,
         isFlying: false,
         path: [],
     });
+
+    // Update simState when startPos changes (if not flying)
+    useEffect(() => {
+        if (!simState.isFlying) {
+            setSimState(prev => ({
+                ...prev,
+                x: startPos.x,
+                y: startPos.y,
+                path: []
+            }));
+        }
+    }, [startPos, simState.isFlying]);
 
     // Data History for Oscilloscopes
     const [heightData, setHeightData] = useState<number[]>([]);

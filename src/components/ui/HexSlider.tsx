@@ -29,6 +29,16 @@ export default function HexSlider({ label, min, max, value, onChange, unit = "" 
         onChange(newValue);
     };
 
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+            e.preventDefault();
+            onChange(Math.min(value + 1, max));
+        } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+            e.preventDefault();
+            onChange(Math.max(value - 1, min));
+        }
+    };
+
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
             if (isDragging) {
@@ -54,7 +64,16 @@ export default function HexSlider({ label, min, max, value, onChange, unit = "" 
     const percent = ((value - min) / (max - min)) * 100;
 
     return (
-        <div className={styles.sliderContainer}>
+        <div
+            className={styles.sliderContainer}
+            tabIndex={0}
+            onKeyDown={handleKeyDown}
+            role="slider"
+            aria-label={label}
+            aria-valuemin={min}
+            aria-valuemax={max}
+            aria-valuenow={value}
+        >
             <div className={styles.label}>
                 <span>{label}</span>
                 <span>{value}{unit}</span>
