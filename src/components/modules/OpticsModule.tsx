@@ -97,6 +97,75 @@ export default function OpticsModule() {
         return path;
     };
 
+    // Interaction State
+    const [dragging, setDragging] = useState<{ index: number; type: "start" | "end" | "center"; offsetX: number; offsetY: number } | null>(null);
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        const rect = (e.target as HTMLElement).getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        // Check mirrors
+        for (let i = 0; i < mirrors.length; i++) {
+            const m = mirrors[i];
+            const distStart = Math.hypot(m.x1 - x, m.y1 - y);
+            const distEnd = Math.hypot(m.x2 - x, m.y2 - y);
+            const centerX = (m.x1 + m.x2) / 2;
+            const centerY = (m.y1 + m.y2) / 2;
+            const distCenter = Math.hypot(centerX - x, centerY - y);
+
+            if (distStart < 20) {
+                setDragging({ index: i, type: "start", offsetX: 0, offsetY: 0 });
+                return;
+            }
+            if (distEnd < 20) {
+                setDragging({ index: i, type: "end", offsetX: 0, offsetY: 0 });
+                return;
+            }
+            if (distCenter < 20) {
+                setDragging({ index: i, type: "center", offsetX: x - centerX, offsetY: y - centerY });
+                return;
+            }
+        }
+    };
+
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (!dragging) return;
+
+        const rect = (e.target as HTMLElement).getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        setMirrors(prev => {
+            const newMirrors = [...prev];
+            const m = { ...newMirrors[dragging.index] };
+
+            if (dragging.type === "start") {
+                m.x1 = x;
+                m.y1 = y;
+            } else if (dragging.type === "end") {
+                m.x2 = x;
+                m.y2 = y;
+            } else if (dragging.type === "center") {
+                const dx = m.x2 - m.x1;
+                const dy = m.y2 - m.y1;
+                const cx = x - dragging.offsetX;
+                const cy = y - dragging.offsetY;
+                m.x1 = cx - dx / 2;
+                m.y1 = cy - dy / 2;
+                m.x2 = cx + dx / 2;
+                m.y2 = cy + dy / 2;
+            }
+
+            newMirrors[dragging.index] = m;
+            return newMirrors;
+        });
+    };
+
+    const handleMouseUp = () => {
+        setDragging(null);
+    };
+
     // Interaction (Simple drag for mirrors - placeholder for now)
     // For this phase, we'll just randomize mirrors to show interactivity
     const randomizeMirrors = () => {
@@ -117,12 +186,20 @@ export default function OpticsModule() {
         ctx.clearRect(0, 0, width, height);
 
         // 1. Draw Mirrors
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = isTheory ? "#c8aa6e" : "#e0e0e0"; // Gold or Silver
-        for (const mirror of mirrors) {
+        for (let i = 0; i < mirrors.length; i++) {
+            const mirror = mirrors[i];
+
+            // Highlight if dragging
+            const isDragging = dragging?.index === i;
+
             ctx.beginPath();
             ctx.moveTo(mirror.x1, mirror.y1);
             ctx.lineTo(mirror.x2, mirror.y2);
+
+            ctx.lineWidth = isDragging ? 6 : 4;
+            ctx.strokeStyle = isTheory ? "#c8aa6e" : "#e0e0e0"; // Gold or Silver
+            if (isDragging) ctx.strokeStyle = isTheory ? "#e0c080" : "#ffffff";
+
             ctx.stroke();
 
             // Draw "glass" look
@@ -130,9 +207,20 @@ export default function OpticsModule() {
                 ctx.lineWidth = 8;
                 ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
                 ctx.stroke();
-                ctx.lineWidth = 4;
-                ctx.strokeStyle = "#e0e0e0";
             }
+
+            // Draw Handles (Circles at ends)
+            ctx.fillStyle = isTheory ? "#c8aa6e" : "#39ff14";
+            ctx.beginPath(); ctx.arc(mirror.x1, mirror.y1, 5, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(mirror.x2, mirror.y2, 5, 0, Math.PI * 2); ctx.fill();
+            // Center handle
+            ctx.fillStyle = isTheory ? "#1a1e2e" : "#000";
+            ctx.strokeStyle = isTheory ? "#c8aa6e" : "#39ff14";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc((mirror.x1 + mirror.x2) / 2, (mirror.y1 + mirror.y2) / 2, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
         }
 
         // 2. Ray Trace & Draw Lasers
@@ -170,16 +258,16 @@ export default function OpticsModule() {
             ctx.fill();
         }
 
-    }, [mirrors, lasers]);
+    }, [mirrors, lasers, dragging]);
 
     return (
-        <div className={styles.container}>
+        <div className={styles.container} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
             <SimulationCanvas draw={draw} />
 
             <div className={styles.controls}>
                 <button onClick={randomizeMirrors} className={styles.button}>Randomize Mirrors</button>
                 <div className={styles.instruction}>
-                    (Drag & Drop coming in Phase 5)
+                    Drag mirrors by ends or center
                 </div>
             </div>
         </div>

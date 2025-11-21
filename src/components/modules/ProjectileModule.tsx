@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import styles from "./ProjectileModule.module.css";
 import SimulationCanvas from "../simulation/SimulationCanvas";
 import { useGameLoop } from "@/hooks/useGameLoop";
+import HexSlider from "../ui/HexSlider";
 
 interface ProjectileState {
     x: number;
@@ -143,39 +144,33 @@ export default function ProjectileModule() {
 
             <div className={styles.controls}>
                 <div className={styles.controlGroup}>
-                    <label className={styles.label}>Velocity</label>
-                    <input
-                        type="range"
-                        min="10" max="150"
+                    <HexSlider
+                        label="Velocity"
+                        min={10} max={150}
                         value={velocity}
-                        onChange={(e) => setVelocity(Number(e.target.value))}
-                        className={styles.input}
+                        onChange={setVelocity}
+                        unit=" m/s"
                     />
-                    <span className={styles.value}>{velocity} m/s</span>
                 </div>
 
                 <div className={styles.controlGroup}>
-                    <label className={styles.label}>Angle</label>
-                    <input
-                        type="range"
-                        min="0" max="90"
+                    <HexSlider
+                        label="Angle"
+                        min={0} max={90}
                         value={angle}
-                        onChange={(e) => setAngle(Number(e.target.value))}
-                        className={styles.input}
+                        onChange={setAngle}
+                        unit="°"
                     />
-                    <span className={styles.value}>{angle}°</span>
                 </div>
 
                 <div className={styles.controlGroup}>
-                    <label className={styles.label}>Gravity</label>
-                    <input
-                        type="range"
-                        min="1" max="20"
+                    <HexSlider
+                        label="Gravity"
+                        min={1} max={20}
                         value={gravity}
-                        onChange={(e) => setGravity(Number(e.target.value))}
-                        className={styles.input}
+                        onChange={setGravity}
+                        unit=" m/s²"
                     />
-                    <span className={styles.value}>{gravity} m/s²</span>
                 </div>
 
                 <button onClick={fire} className={styles.button}>Fire</button>
