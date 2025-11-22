@@ -2,11 +2,15 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import styles from "./OpticsModule.module.css";
+import { useTheme } from "@/context/ThemeContext";
 import SimulationCanvas from "../simulation/SimulationCanvas";
+import HexSlider from "../ui/HexSlider";
 
-interface Point { x: number; y: number; }
+import { Point } from "@/types/physics";
+
 interface Ray { start: Point; angle: number; color: string; }
 interface Mirror { x1: number; y1: number; x2: number; y2: number; }
+interface Lens { x: number; y: number; radius: number; refractiveIndex: number; }
 
 export default function OpticsModule() {
     // State
@@ -16,94 +20,208 @@ export default function OpticsModule() {
         { x1: 600, y1: 100, x2: 800, y2: 300 }, // Diagonal mirror
     ]);
 
+    const [lenses, setLenses] = useState<Lens[]>([
+        { x: 400, y: 200, radius: 50, refractiveIndex: 1.5 } // Glass sphere
+    ]);
+
     const [lasers, setLasers] = useState<Ray[]>([
         { start: { x: 100, y: 200 }, angle: 0, color: "#ff0000" } // Red laser
     ]);
 
     // Ray Tracing Logic
-    const traceRay = (ray: Ray, mirrors: Mirror[], depth: number = 0): Point[] => {
+    const traceRay = useCallback((ray: Ray, mirrors: Mirror[], lenses: Lens[], depth: number = 0): Point[] => {
         if (depth > 10) return []; // Max recursion depth
 
         let closestInt: Point | null = null;
         let minDist = Infinity;
-        let hitMirror: Mirror | null = null;
+        let hitObject: { type: "mirror" | "lens", obj: any, normal?: number } | null = null;
 
         // Ray direction vector
         const dx = Math.cos(ray.angle);
         const dy = Math.sin(ray.angle);
 
-        // Check intersection with all mirrors
+        // 1. Check Mirrors (Line Segments)
         for (const mirror of mirrors) {
             const x1 = mirror.x1;
             const y1 = mirror.y1;
             const x2 = mirror.x2;
             const y2 = mirror.y2;
 
-            // Line-Line Intersection (Ray vs Mirror Segment)
             const x3 = ray.start.x;
             const y3 = ray.start.y;
-            const x4 = ray.start.x + dx * 2000; // Far point
+            const x4 = ray.start.x + dx * 2000;
             const y4 = ray.start.y + dy * 2000;
 
             const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-            if (den === 0) continue; // Parallel
+            if (den === 0) continue;
 
             const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;
             const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / den;
 
-            if (t >= 0 && t <= 1 && u >= 0) {
+            if (t >= 0 && t <= 1 && u > 0.001) { // u > epsilon to avoid self-intersection
                 const intX = x1 + t * (x2 - x1);
                 const intY = y1 + t * (y2 - y1);
-
                 const dist = Math.sqrt((intX - x3) ** 2 + (intY - y3) ** 2);
 
-                if (dist < minDist && dist > 0.1) { // Avoid self-intersection
+                if (dist < minDist) {
                     minDist = dist;
                     closestInt = { x: intX, y: intY };
-                    hitMirror = mirror;
+                    hitObject = { type: "mirror", obj: mirror };
                 }
             }
         }
 
-        // Check bounds (screen edges) if no mirror hit
+        // 2. Check Lenses (Circles)
+        for (const lens of lenses) {
+            // Ray: O + tD
+            // Circle: |P - C|^2 = R^2
+            // t^2 + 2(D . (O - C))t + |O - C|^2 - R^2 = 0
+
+            const cx = lens.x;
+            const cy = lens.y;
+            const r = lens.radius;
+
+            const ox = ray.start.x;
+            const oy = ray.start.y;
+
+            const lx = ox - cx;
+            const ly = oy - cy;
+
+            const a = 1; // D is normalized
+            const b = 2 * (dx * lx + dy * ly);
+            const c = (lx * lx + ly * ly) - (r * r);
+
+            const disc = b * b - 4 * a * c;
+
+            if (disc >= 0) {
+                const sqrtDisc = Math.sqrt(disc);
+                const t1 = (-b - sqrtDisc) / (2 * a);
+                const t2 = (-b + sqrtDisc) / (2 * a);
+
+                let t = -1;
+                if (t1 > 0.001) t = t1;
+                else if (t2 > 0.001) t = t2;
+
+                if (t > 0 && t < minDist) {
+                    minDist = t;
+                    closestInt = { x: ox + t * dx, y: oy + t * dy };
+
+                    // Calculate Normal Angle
+                    const nx = (closestInt.x - cx) / r;
+                    const ny = (closestInt.y - cy) / r;
+                    const normalAngle = Math.atan2(ny, nx);
+
+                    hitObject = { type: "lens", obj: lens, normal: normalAngle };
+                }
+            }
+        }
+
+        // No hit?
         if (!closestInt) {
-            // Just project far out for now
             closestInt = { x: ray.start.x + dx * 2000, y: ray.start.y + dy * 2000 };
             return [ray.start, closestInt];
         }
 
-        // Calculate Reflection
         const path = [ray.start, closestInt];
 
-        if (hitMirror) {
-            // Normal vector of the mirror
-            const mx = hitMirror.x2 - hitMirror.x1;
-            const my = hitMirror.y2 - hitMirror.y1;
-            const normalAngle = Math.atan2(my, mx) - Math.PI / 2;
+        // Handle Interaction
+        if (hitObject) {
+            let newAngle = ray.angle;
 
-            // Reflection formula: r = d - 2(d.n)n
-            // Or simpler with angles: angleOfReflection = 2 * normalAngle - angleOfIncidence - PI
-            const reflectAngle = 2 * normalAngle - ray.angle - Math.PI;
+            if (hitObject.type === "mirror") {
+                const m = hitObject.obj as Mirror;
+                const mx = m.x2 - m.x1;
+                const my = m.y2 - m.y1;
+                const normalAngle = Math.atan2(my, mx) - Math.PI / 2;
+                newAngle = 2 * normalAngle - ray.angle - Math.PI;
+            }
+            else if (hitObject.type === "lens") {
+                const lens = hitObject.obj as Lens;
+                const normal = hitObject.normal!;
 
-            const reflectedRay: Ray = {
+                // Determine entering or exiting
+                // Dot product of Ray and Normal
+                const dot = dx * Math.cos(normal) + dy * Math.sin(normal);
+
+                let n1 = 1; // Air
+                let n2 = lens.refractiveIndex; // Lens
+                if (dot > 0) {
+                    n1 = lens.refractiveIndex;
+                    n2 = 1;
+                }
+
+                // Snell's Law: n1 sin(theta1) = n2 sin(theta2)
+                // theta1 is angle between Ray and Normal
+                // We need to be careful with angles here.
+
+                // Let's use vector math for robustness
+                // I = incoming vector (dx, dy)
+                // N = normal vector (at intersection)
+                // if dot(I, N) < 0, entering. N is correct.
+                // if dot(I, N) > 0, exiting. N should be flipped for the math.
+
+                let nx = Math.cos(normal);
+                let ny = Math.sin(normal);
+
+                if (dx * nx + dy * ny > 0) {
+                    // Exiting
+                    nx = -nx;
+                    ny = -ny;
+                    n1 = lens.refractiveIndex;
+                    n2 = 1;
+                }
+
+                const n = n1 / n2;
+                const cosI = - (dx * nx + dy * ny);
+                const sinT2 = n * n * (1 - cosI * cosI);
+
+                if (sinT2 > 1) {
+                    // Total Internal Reflection
+                    // Treat as mirror
+                    // R = I - 2(I.N)N
+                    // This is effectively reflection
+                    const reflectX = dx + 2 * cosI * nx;
+                    const reflectY = dy + 2 * cosI * ny;
+                    newAngle = Math.atan2(reflectY, reflectX);
+                } else {
+                    const cosT = Math.sqrt(1 - sinT2);
+                    const rx = n * dx + (n * cosI - cosT) * nx;
+                    const ry = n * dy + (n * cosI - cosT) * ny;
+                    newAngle = Math.atan2(ry, rx);
+                }
+            }
+
+            const nextRay: Ray = {
                 start: closestInt,
-                angle: reflectAngle,
+                angle: newAngle,
                 color: ray.color
             };
 
-            path.push(...traceRay(reflectedRay, mirrors, depth + 1).slice(1));
+            path.push(...traceRay(nextRay, mirrors, lenses, depth + 1).slice(1));
         }
 
         return path;
-    };
+    }, []);
 
     // Interaction State
-    const [dragging, setDragging] = useState<{ index: number; type: "start" | "end" | "center"; offsetX: number; offsetY: number } | null>(null);
+    const [dragging, setDragging] = useState<{ index: number; type: "mirror_start" | "mirror_end" | "mirror_center" | "lens"; offsetX: number; offsetY: number } | null>(null);
+    const [selectedLensIndex, setSelectedLensIndex] = useState<number | null>(null);
 
     const handleMouseDown = (e: React.MouseEvent) => {
         const rect = (e.target as HTMLElement).getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
+
+        // Check Lenses first (on top)
+        for (let i = 0; i < lenses.length; i++) {
+            const lens = lenses[i];
+            const dist = Math.hypot(lens.x - x, lens.y - y);
+            if (dist < lens.radius) {
+                setDragging({ index: i, type: "lens", offsetX: x - lens.x, offsetY: y - lens.y });
+                setSelectedLensIndex(i);
+                return;
+            }
+        }
 
         // Check mirrors
         for (let i = 0; i < mirrors.length; i++) {
@@ -115,18 +233,24 @@ export default function OpticsModule() {
             const distCenter = Math.hypot(centerX - x, centerY - y);
 
             if (distStart < 20) {
-                setDragging({ index: i, type: "start", offsetX: 0, offsetY: 0 });
+                setDragging({ index: i, type: "mirror_start", offsetX: 0, offsetY: 0 });
+                setSelectedLensIndex(null); // Deselect lens
                 return;
             }
             if (distEnd < 20) {
-                setDragging({ index: i, type: "end", offsetX: 0, offsetY: 0 });
+                setDragging({ index: i, type: "mirror_end", offsetX: 0, offsetY: 0 });
+                setSelectedLensIndex(null);
                 return;
             }
             if (distCenter < 20) {
-                setDragging({ index: i, type: "center", offsetX: x - centerX, offsetY: y - centerY });
+                setDragging({ index: i, type: "mirror_center", offsetX: x - centerX, offsetY: y - centerY });
+                setSelectedLensIndex(null);
                 return;
             }
         }
+
+        // Clicked empty space
+        setSelectedLensIndex(null);
     };
 
     const handleMouseMove = (e: React.MouseEvent) => {
@@ -136,30 +260,42 @@ export default function OpticsModule() {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
 
-        setMirrors(prev => {
-            const newMirrors = [...prev];
-            const m = { ...newMirrors[dragging.index] };
+        if (dragging.type === "lens") {
+            setLenses(prev => {
+                const newLenses = [...prev];
+                newLenses[dragging.index] = {
+                    ...newLenses[dragging.index],
+                    x: x - dragging.offsetX,
+                    y: y - dragging.offsetY
+                };
+                return newLenses;
+            });
+        } else {
+            setMirrors(prev => {
+                const newMirrors = [...prev];
+                const m = { ...newMirrors[dragging.index] };
 
-            if (dragging.type === "start") {
-                m.x1 = x;
-                m.y1 = y;
-            } else if (dragging.type === "end") {
-                m.x2 = x;
-                m.y2 = y;
-            } else if (dragging.type === "center") {
-                const dx = m.x2 - m.x1;
-                const dy = m.y2 - m.y1;
-                const cx = x - dragging.offsetX;
-                const cy = y - dragging.offsetY;
-                m.x1 = cx - dx / 2;
-                m.y1 = cy - dy / 2;
-                m.x2 = cx + dx / 2;
-                m.y2 = cy + dy / 2;
-            }
+                if (dragging.type === "mirror_start") {
+                    m.x1 = x;
+                    m.y1 = y;
+                } else if (dragging.type === "mirror_end") {
+                    m.x2 = x;
+                    m.y2 = y;
+                } else if (dragging.type === "mirror_center") {
+                    const dx = m.x2 - m.x1;
+                    const dy = m.y2 - m.y1;
+                    const cx = x - dragging.offsetX;
+                    const cy = y - dragging.offsetY;
+                    m.x1 = cx - dx / 2;
+                    m.y1 = cy - dy / 2;
+                    m.x2 = cx + dx / 2;
+                    m.y2 = cy + dy / 2;
+                }
 
-            newMirrors[dragging.index] = m;
-            return newMirrors;
-        });
+                newMirrors[dragging.index] = m;
+                return newMirrors;
+            });
+        }
     };
 
     const handleMouseUp = () => {
@@ -179,8 +315,8 @@ export default function OpticsModule() {
     };
 
     // Render
+    const { theme } = useTheme();
     const draw = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
-        const theme = document.documentElement.getAttribute("data-theme") || "theory";
         const isTheory = theme === "theory";
 
         ctx.clearRect(0, 0, width, height);
@@ -223,9 +359,15 @@ export default function OpticsModule() {
             ctx.stroke();
         }
 
+        // 1b. Draw Lenses
+        for (const lens of lenses) {
+            ctx.beginPath();
+            ctx.fillText(`n=${lens.refractiveIndex}`, lens.x, lens.y);
+        }
+
         // 2. Ray Trace & Draw Lasers
         for (const laser of lasers) {
-            const path = traceRay(laser, mirrors);
+            const path = traceRay(laser, mirrors, lenses);
 
             ctx.beginPath();
             ctx.moveTo(path[0].x, path[0].y);
@@ -258,7 +400,7 @@ export default function OpticsModule() {
             ctx.fill();
         }
 
-    }, [mirrors, lasers, dragging]);
+    }, [mirrors, lasers, lenses, dragging, traceRay, theme]);
 
     return (
         <div className={styles.container} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
@@ -266,8 +408,30 @@ export default function OpticsModule() {
 
             <div className={styles.controls}>
                 <button onClick={randomizeMirrors} className={styles.button}>Randomize Mirrors</button>
+                <button onClick={() => setLenses([...lenses, { x: 400, y: 300, radius: 40, refractiveIndex: 1.5 }])} className={styles.button}>Add Lens</button>
+
+                {selectedLensIndex !== null && (
+                    <div style={{ marginTop: "10px", width: "200px" }}>
+                        <HexSlider
+                            label="Refractive Index"
+                            min={100}
+                            max={250}
+                            value={lenses[selectedLensIndex].refractiveIndex * 100}
+                            onChange={(val) => {
+                                const newLenses = [...lenses];
+                                newLenses[selectedLensIndex] = { ...newLenses[selectedLensIndex], refractiveIndex: val / 100 };
+                                setLenses(newLenses);
+                            }}
+                            unit=""
+                        />
+                        <div style={{ fontSize: "0.8rem", textAlign: "center", opacity: 0.7 }}>
+                            (1.00 - 2.50)
+                        </div>
+                    </div>
+                )}
+
                 <div className={styles.instruction}>
-                    Drag mirrors by ends or center
+                    Drag mirrors or lenses. Click lens to edit.
                 </div>
             </div>
         </div>

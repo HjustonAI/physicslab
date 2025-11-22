@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Cinzel, Roboto_Mono } from "next/font/google";
 import "./globals.css";
 import InstrumentPanel from "@/components/ui/InstrumentPanel";
+import { ThemeProvider } from "@/context/ThemeContext";
 
 const cinzel = Cinzel({
   subsets: ["latin"],
@@ -28,8 +29,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${cinzel.variable} ${robotoMono.variable}`}>
-        <InstrumentPanel />
-        {children}
+        <ThemeProvider>
+          <InstrumentPanel />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

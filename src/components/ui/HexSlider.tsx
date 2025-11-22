@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import styles from "./HexSlider.module.css";
 
 interface HexSliderProps {
@@ -21,13 +21,13 @@ export default function HexSlider({ label, min, max, value, onChange, unit = "" 
         updateValue(e.clientX);
     };
 
-    const updateValue = (clientX: number) => {
+    const updateValue = useCallback((clientX: number) => {
         if (!trackRef.current) return;
         const rect = trackRef.current.getBoundingClientRect();
         const percent = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
         const newValue = Math.round(min + percent * (max - min));
         onChange(newValue);
-    };
+    }, [min, max, onChange]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "ArrowRight" || e.key === "ArrowUp") {
@@ -59,7 +59,7 @@ export default function HexSlider({ label, min, max, value, onChange, unit = "" 
             window.removeEventListener("mousemove", handleMouseMove);
             window.removeEventListener("mouseup", handleMouseUp);
         };
-    }, [isDragging, min, max, onChange]);
+    }, [isDragging, updateValue]);
 
     const percent = ((value - min) / (max - min)) * 100;
 

@@ -1,20 +1,14 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import styles from "./ProjectileModule.module.css";
 import SimulationCanvas from "../simulation/SimulationCanvas";
-import { useGameLoop } from "@/hooks/useGameLoop";
+import { useProjectilePhysics } from "@/hooks/modules/useProjectilePhysics";
+import { useTheme } from "@/context/ThemeContext";
 import HexSlider from "../ui/HexSlider";
 import Oscilloscope from "../ui/Oscilloscope";
 
-interface ProjectileState {
-    x: number;
-    y: number;
-    vx: number;
-    vy: number;
-    isFlying: boolean;
-    path: { x: number; y: number }[];
-}
+
 
 export default function ProjectileModule() {
     // Physics Parameters
@@ -38,116 +32,16 @@ export default function ProjectileModule() {
         return () => window.removeEventListener("resize", handleResize);
     }, []);
 
-    const [simState, setSimState] = useState<ProjectileState>({
-        x: 100,
-        y: 0, // Will be updated by effect
-        vx: 0,
-        vy: 0,
-        isFlying: false,
-        path: [],
+    const { simState, heightData, velocityData, fire, reset } = useProjectilePhysics({
+        velocity,
+        angle,
+        gravity,
+        startPos
     });
 
-    // Update simState when startPos changes (if not flying)
-    useEffect(() => {
-        if (!simState.isFlying) {
-            setSimState(prev => ({
-                ...prev,
-                x: startPos.x,
-                y: startPos.y,
-                path: []
-            }));
-        }
-    }, [startPos, simState.isFlying]);
-
-    // Data History for Oscilloscopes
-    const [heightData, setHeightData] = useState<number[]>([]);
-    const [velocityData, setVelocityData] = useState<number[]>([]);
-
-    const stateRef = useRef(simState);
-    stateRef.current = simState;
-
-    // Physics Update Loop
-    const update = useCallback((deltaTime: number) => {
-        if (!stateRef.current.isFlying) return;
-
-        setSimState((prev) => {
-            const dt = deltaTime / 100; // Time scaling
-            let { x, y, vx, vy, path } = prev;
-
-            // Apply Gravity
-            vy += gravity * dt;
-
-            // Update Position
-            x += vx * dt;
-            y += vy * dt;
-
-            // Ground Collision (Simple floor at startPos.y)
-            if (y > startPos.y) {
-                y = startPos.y;
-                return { ...prev, x, y, isFlying: false, path: [...path, { x, y }] };
-            }
-
-            // Record Data
-            // Invert Y for height (canvas Y is down)
-            const currentHeight = Math.max(0, startPos.y - y);
-            // Vertical velocity (invert because up is negative Y)
-            const currentVy = -vy;
-
-            setHeightData(prevData => {
-                const newData = [...prevData, currentHeight];
-                if (newData.length > 100) newData.shift(); // Keep last 100 frames
-                return newData;
-            });
-
-            setVelocityData(prevData => {
-                const newData = [...prevData, currentVy];
-                if (newData.length > 100) newData.shift();
-                return newData;
-            });
-
-            // Record path every few frames or distance (optimization)
-            // For now, just push every frame is fine for short flights
-            return { ...prev, x, y, vx, vy, path: [...path, { x, y }] };
-        });
-    }, [gravity, startPos.y]);
-
-    useGameLoop(update);
-
-    // Controls
-    const fire = () => {
-        const rad = (angle * Math.PI) / 180;
-        const vx = velocity * Math.cos(rad);
-        const vy = -velocity * Math.sin(rad); // Negative because Y is down in canvas
-
-        setHeightData([]);
-        setVelocityData([]);
-
-        setSimState({
-            x: startPos.x,
-            y: startPos.y,
-            vx,
-            vy,
-            isFlying: true,
-            path: [{ x: startPos.x, y: startPos.y }],
-        });
-    };
-
-    const reset = () => {
-        setSimState({
-            x: startPos.x,
-            y: startPos.y,
-            vx: 0,
-            vy: 0,
-            isFlying: false,
-            path: [],
-        });
-        setHeightData([]);
-        setVelocityData([]);
-    };
-
     // Rendering
+    const { theme } = useTheme();
     const draw = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
-        const theme = document.documentElement.getAttribute("data-theme") || "theory";
         const isTheory = theme === "theory";
         const color = isTheory ? "#c8aa6e" : "#39ff14";
 
@@ -190,7 +84,7 @@ export default function ProjectileModule() {
 
         // 4. Draw Predicted Path (Ghost line) - Optional, maybe for next step
 
-    }, [simState, angle, startPos]);
+    }, [simState, angle, startPos, theme]);
 
     return (
         <div className={styles.container}>

@@ -1,18 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useTheme } from "@/context/ThemeContext";
 import styles from "./InstrumentPanel.module.css";
 
 export default function InstrumentPanel() {
-    const [theme, setTheme] = useState<"theory" | "experiment">("theory");
-
-    useEffect(() => {
-        document.documentElement.setAttribute("data-theme", theme);
-    }, [theme]);
-
-    const toggleTheme = () => {
-        setTheme((prev) => (prev === "theory" ? "experiment" : "theory"));
-    };
+    const { theme, toggleTheme } = useTheme();
 
     return (
         <div className={styles.panel}>
